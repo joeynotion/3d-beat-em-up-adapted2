@@ -1,10 +1,32 @@
 namespace SpriteKind {
     export const physicalObject = SpriteKind.create()
     export const Pushable = SpriteKind.create()
+    export const Destructible = SpriteKind.create()
 }
 /**
  * **GAME STATE VARIABLES**
  */
+function createInteractableSprite (objectSprite: Sprite, jumpHeightPixels: number, moveable: boolean, destructible: boolean) {
+    interactableSprites.push(objectSprite)
+    interactableJumpHeights.push(jumpHeightPixels)
+    interactableMoveable.push(moveable)
+    interactableDestructible.push(destructible)
+}
+function getInteractableIndex (target: Sprite) {
+    for (let index = 0; index <= interactableSprites.length - 1; index++) {
+        if (interactableSprites[index] == target) {
+            return index
+        }
+    }
+    return -1
+}
+function getInteractableSurfaceY (target: Sprite) {
+    let objectIndex2 = getInteractableIndex(target)
+    if (objectIndex2 >= 0) {
+        return target.bottom - interactableJumpHeights[objectIndex2]
+    }
+    return target.top
+}
 // **COLLISION FUNCTIONS** - Simplified for blocks
 function preventWalkingThroughSprite (player2: Sprite, obstacle: Sprite) {
     if (player2.overlapsWith(obstacle)) {
@@ -20,27 +42,27 @@ function preventWalkingThroughSprite (player2: Sprite, obstacle: Sprite) {
     }
 }
 // **ROCK PUSHING FUNCTION** - Simplified for blocks
-function handleRockPushing () {
-    if (tinyBlueOx.overlapsWith(rock)) {
+function handleSpritePushing (pushableSprite: Sprite) {
+    if (tinyBlueOx.overlapsWith(pushableSprite)) {
         pushAmount = pushSpeed / 60
         // Check if aligned for vertical pushing
-        canPushVertically = Math.abs(tinyBlueOx.x - rock.x) < rock.width + pushThreshold
+        canPushVertically = Math.abs(tinyBlueOx.x - pushableSprite.x) < pushableSprite.width + pushThreshold
         // Check if aligned for horizontal pushing
-        canPushHorizontally = Math.abs(tinyBlueOx.y - rock.y) < rock.height + pushThreshold
+        canPushHorizontally = Math.abs(tinyBlueOx.y - pushableSprite.y) < pushableSprite.height + pushThreshold
         // Try vertical pushing
         if (canPushVertically) {
             if (controller.up.isPressed()) {
-                newY = rock.y - pushAmount
-                if (isWithinMapBounds(rock, rock.x, newY)) {
-                    rock.y = newY
+                newY = pushableSprite.y - pushAmount
+                if (isWithinMapBounds(pushableSprite, pushableSprite.x, newY)) {
+                    pushableSprite.y = newY
                     rockMoved = true
                     tinyBlueOx.y -= pushAmount * 0.5
                 }
             }
             if (controller.down.isPressed()) {
-                newY2 = rock.y + pushAmount
-                if (isWithinMapBounds(rock, rock.x, newY2)) {
-                    rock.y = newY2
+                newY2 = pushableSprite.y + pushAmount
+                if (isWithinMapBounds(pushableSprite, pushableSprite.x, newY2)) {
+                    pushableSprite.y = newY2
                     rockMoved = true
                     tinyBlueOx.y += pushAmount * 0.5
                 }
@@ -49,17 +71,17 @@ function handleRockPushing () {
         // Try horizontal pushing
         if (canPushHorizontally) {
             if (controller.left.isPressed()) {
-                newX = rock.x - pushAmount
-                if (isWithinMapBounds(rock, newX, rock.y)) {
-                    rock.x = newX
+                newX = pushableSprite.x - pushAmount
+                if (isWithinMapBounds(pushableSprite, newX, pushableSprite.y)) {
+                    pushableSprite.x = newX
                     rockMoved = true
                     tinyBlueOx.x -= pushAmount * 0.5
                 }
             }
             if (controller.right.isPressed()) {
-                newX2 = rock.x + pushAmount
-                if (isWithinMapBounds(rock, newX2, rock.y)) {
-                    rock.x = newX2
+                newX2 = pushableSprite.x + pushAmount
+                if (isWithinMapBounds(pushableSprite, newX2, pushableSprite.y)) {
+                    pushableSprite.x = newX2
                     rockMoved = true
                     tinyBlueOx.x += pushAmount * 0.5
                 }
@@ -77,21 +99,27 @@ controller.A.onEvent(ControllerButtonEvent.Pressed, function () {
 })
 function checkIfFallingOffRock () {
     if (isOnObject) {
+        fellOff = false
+        let activeSprite = currentPlatformSprite
+        if (!(activeSprite)) {
+            return
+        }
         // Check all directions: left, right, front
-        if (tinyBlueOx.x < rock.left) {
+        if (tinyBlueOx.x < activeSprite.left) {
             fellOff = true
         }
-        if (tinyBlueOx.x > rock.right) {
+        if (tinyBlueOx.x > activeSprite.right) {
             fellOff = true
         }
-        if (tinyBlueOx.y > rock.bottom) {
+        if (tinyBlueOx.y > activeSprite.bottom) {
             fellOff = true
         }
         if (fellOff) {
             isJumping = true
             isOnObject = false
             verticalVelocity = 0
-            currentGroundLevel = rock.bottom - fallOffset
+            currentGroundLevel = activeSprite.bottom - fallOffset
+            currentPlatformSprite = null
         }
     }
 }
@@ -105,13 +133,18 @@ function tryToJump () {
 }
 function checkIfFallingBehindRock () {
     if (isOnObject) {
+        let activeSprite2 = currentPlatformSprite
+        if (!(activeSprite2)) {
+            return
+        }
         if (controller.up.isPressed()) {
-            if (tinyBlueOx.y < rock.top) {
+            if (tinyBlueOx.y < activeSprite2.top) {
                 isJumping = false
                 isOnObject = false
                 isFallingBehindRock = true
                 verticalVelocity = 2
-                currentGroundLevel = rock.bottom - fallOffset
+                currentGroundLevel = activeSprite2.bottom - fallOffset
+                currentPlatformSprite = null
             }
         }
     }
@@ -119,7 +152,9 @@ function checkIfFallingBehindRock () {
 // **DEPTH ORDERING** - Simple function
 function updateSpriteDepths () {
     tinyBlueOx.z = tinyBlueOx.bottom
-    rock.z = rock.bottom
+    for (let value of interactableSprites) {
+        value.z = value.bottom
+    }
     tree.z = tree.bottom
 }
 // **SIMPLE HELPER FUNCTIONS** - Block-friendly
@@ -166,16 +201,20 @@ controller.B.onEvent(ControllerButtonEvent.Released, function () {
     isBoosting = false
     updatePlayerSpeed()
 })
-function checkIfLandingOnRock () {
+function checkIfLandingOnInteractable () {
     if (!(isFallingBehindRock)) {
-        if (tinyBlueOx.overlapsWith(rock)) {
-            if (verticalVelocity > 0) {
-                if (tinyBlueOx.bottom >= rock.top) {
-                    tinyBlueOx.bottom = rock.top
-                    verticalVelocity = 0
-                    isJumping = false
-                    isOnObject = true
-                    currentGroundLevel = rock.top
+        for (let landingSprite of interactableSprites) {
+            if (tinyBlueOx.overlapsWith(landingSprite)) {
+                if (verticalVelocity > 0) {
+                    let surfaceY = getInteractableSurfaceY(landingSprite)
+                    if (tinyBlueOx.bottom >= surfaceY) {
+                        tinyBlueOx.bottom = surfaceY
+                        verticalVelocity = 0
+                        isJumping = false
+                        isOnObject = true
+                        currentGroundLevel = surfaceY
+                        currentPlatformSprite = landingSprite
+                    }
                 }
             }
         }
@@ -198,6 +237,11 @@ let canPushHorizontally = false
 let canPushVertically = false
 let rock: Sprite = null
 let tree: Sprite = null
+let currentPlatformSprite: Sprite = null
+let interactableDestructible: boolean[] = []
+let interactableMoveable: boolean[] = []
+let interactableJumpHeights: number[] = []
+let interactableSprites: Sprite[] = []
 let currentGroundLevel = 0
 let tilemapHeight = 0
 let tilemapWidth = 0
@@ -234,6 +278,7 @@ tree = sprites.create(assets.image`myImage`, SpriteKind.physicalObject)
 tree.setPosition(44, 87)
 rock = sprites.create(assets.image`myImage0`, SpriteKind.Pushable)
 rock.setPosition(118, 87)
+createInteractableSprite(rock, 8, true, false)
 tinyBlueOx = sprites.create(assets.image`myImage1`, SpriteKind.Player)
 tinyBlueOx.setPosition(108, 86)
 tinyBlueOx.z = 100
@@ -250,13 +295,20 @@ game.onUpdate(function () {
     // Handle physics
     handleJumping()
     // Handle collisions and interactions
-    checkIfLandingOnRock()
+    checkIfLandingOnInteractable()
     checkIfFallingOffRock()
     checkIfFallingBehindRock()
-    // Handle rock pushing
-    handleRockPushing()
+    // Handle interactable pushing and collisions
+    for (let value2 of interactableSprites) {
+        let objectIndex = getInteractableIndex(value2)
+        if (objectIndex >= 0) {
+            if (interactableMoveable[objectIndex]) {
+                handleSpritePushing(value2)
+            }
+        }
+        preventWalkingThroughSprite(tinyBlueOx, value2)
+    }
     // Prevent walking through objects
-    preventWalkingThroughSprite(tinyBlueOx, rock)
     preventWalkingThroughSprite(tinyBlueOx, tree)
     // Update visual depth ordering
     updateSpriteDepths()
