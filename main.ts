@@ -1,10 +1,40 @@
 namespace SpriteKind {
     export const physicalObject = SpriteKind.create()
     export const Pushable = SpriteKind.create()
+    export const Destructible = SpriteKind.create()
 }
 /**
  * **GAME STATE VARIABLES**
  */
+function createInteractableSprite (objectSprite: Sprite, jumpHeightPixels: number, moveable: boolean, destructible: boolean, depthLayers: number) {
+    interactableSprites.push(objectSprite)
+    interactableJumpHeights.push(jumpHeightPixels)
+    interactableMoveable.push(moveable)
+    interactableDestructible.push(destructible)
+    interactableDepthLayers.push(depthLayers)
+}
+function getInteractableIndex (target: Sprite) {
+    for (let index = 0; index <= interactableSprites.length - 1; index++) {
+        if (interactableSprites[index] == target) {
+            return index
+        }
+    }
+    return -1
+}
+function getInteractableSurfaceY (target: Sprite) {
+    let objectIndex2 = getInteractableIndex(target)
+    if (objectIndex2 >= 0) {
+        return target.bottom - interactableJumpHeights[objectIndex2]
+    }
+    return target.top
+}
+function getInteractableDepthLayers (target: Sprite) {
+    let objectIndex3 = getInteractableIndex(target)
+    if (objectIndex3 >= 0) {
+        return interactableDepthLayers[objectIndex3]
+    }
+    return target.height
+}
 // **COLLISION FUNCTIONS** - Simplified for blocks
 function preventWalkingThroughSprite (player2: Sprite, obstacle: Sprite) {
     if (player2.overlapsWith(obstacle)) {
@@ -20,28 +50,28 @@ function preventWalkingThroughSprite (player2: Sprite, obstacle: Sprite) {
     }
 }
 // **ROCK PUSHING FUNCTION** - Simplified for blocks
-function handleRockPushing () {
-    if (tinyBlueOx.overlapsWith(rock)) {
+function handleSpritePushing (pushableSprite: Sprite) {
+    if (tinyBlueOx.overlapsWith(pushableSprite)) {
         pushAmount = pushSpeed / 60
         // Check if aligned for vertical pushing
-        canPushVertically = Math.abs(tinyBlueOx.x - rock.x) < rock.width + pushThreshold
+        canPushVertically = Math.abs(tinyBlueOx.x - pushableSprite.x) < pushableSprite.width + pushThreshold
         // Check if aligned for horizontal pushing
-        canPushHorizontally = Math.abs(tinyBlueOx.y - rock.y) < rock.height + pushThreshold
+        canPushHorizontally = Math.abs(tinyBlueOx.y - pushableSprite.y) < pushableSprite.height + pushThreshold
         // Try vertical pushing
         if (canPushVertically) {
             if (controller.up.isPressed()) {
-                newY = rock.y - pushAmount
-                if (isWithinMapBounds(rock, rock.x, newY)) {
-                    rock.y = newY
-                    rockMoved = true
+                newY = pushableSprite.y - pushAmount
+                if (isWithinMapBounds(pushableSprite, pushableSprite.x, newY)) {
+                    pushableSprite.y = newY
+                    objectMoved = true
                     tinyBlueOx.y -= pushAmount * 0.5
                 }
             }
             if (controller.down.isPressed()) {
-                newY2 = rock.y + pushAmount
-                if (isWithinMapBounds(rock, rock.x, newY2)) {
-                    rock.y = newY2
-                    rockMoved = true
+                newY2 = pushableSprite.y + pushAmount
+                if (isWithinMapBounds(pushableSprite, pushableSprite.x, newY2)) {
+                    pushableSprite.y = newY2
+                    objectMoved = true
                     tinyBlueOx.y += pushAmount * 0.5
                 }
             }
@@ -49,18 +79,18 @@ function handleRockPushing () {
         // Try horizontal pushing
         if (canPushHorizontally) {
             if (controller.left.isPressed()) {
-                newX = rock.x - pushAmount
-                if (isWithinMapBounds(rock, newX, rock.y)) {
-                    rock.x = newX
-                    rockMoved = true
+                newX = pushableSprite.x - pushAmount
+                if (isWithinMapBounds(pushableSprite, newX, pushableSprite.y)) {
+                    pushableSprite.x = newX
+                    objectMoved = true
                     tinyBlueOx.x -= pushAmount * 0.5
                 }
             }
             if (controller.right.isPressed()) {
-                newX2 = rock.x + pushAmount
-                if (isWithinMapBounds(rock, newX2, rock.y)) {
-                    rock.x = newX2
-                    rockMoved = true
+                newX2 = pushableSprite.x + pushAmount
+                if (isWithinMapBounds(pushableSprite, newX2, pushableSprite.y)) {
+                    pushableSprite.x = newX2
+                    objectMoved = true
                     tinyBlueOx.x += pushAmount * 0.5
                 }
             }
@@ -75,23 +105,31 @@ controller.B.onEvent(ControllerButtonEvent.Pressed, function () {
 controller.A.onEvent(ControllerButtonEvent.Pressed, function () {
     tryToJump()
 })
-function checkIfFallingOffRock () {
+function checkIfFallingOffObject () {
     if (isOnObject) {
+        fellOff = false
+        let activeSprite = currentPlatformSprite
+        if (!(activeSprite)) {
+            return
+        }
+        let activeSurfaceY = getInteractableSurfaceY(activeSprite)
+        let activeFrontY = activeSurfaceY + getInteractableDepthLayers(activeSprite)
         // Check all directions: left, right, front
-        if (tinyBlueOx.x < rock.left) {
+        if (tinyBlueOx.x < activeSprite.left) {
             fellOff = true
         }
-        if (tinyBlueOx.x > rock.right) {
+        if (tinyBlueOx.x > activeSprite.right) {
             fellOff = true
         }
-        if (tinyBlueOx.y > rock.bottom) {
+        if (tinyBlueOx.y > activeFrontY) {
             fellOff = true
         }
         if (fellOff) {
             isJumping = true
             isOnObject = false
             verticalVelocity = 0
-            currentGroundLevel = rock.bottom - fallOffset
+            currentGroundLevel = activeSprite.bottom - fallOffset
+            currentPlatformSprite = null
         }
     }
 }
@@ -103,15 +141,21 @@ function tryToJump () {
         verticalVelocity = jumpPower
     }
 }
-function checkIfFallingBehindRock () {
+function checkIfFallingBehindObject () {
     if (isOnObject) {
+        let activeSprite2 = currentPlatformSprite
+        if (!(activeSprite2)) {
+            return
+        }
+        let activeSurfaceY2 = getInteractableSurfaceY(activeSprite2)
         if (controller.up.isPressed()) {
-            if (tinyBlueOx.y < rock.top) {
+            if (tinyBlueOx.y < activeSurfaceY2) {
                 isJumping = false
                 isOnObject = false
-                isFallingBehindRock = true
+                isFallingBehindObject = true
                 verticalVelocity = 2
-                currentGroundLevel = rock.bottom - fallOffset
+                currentGroundLevel = activeSprite2.bottom - fallOffset
+                currentPlatformSprite = null
             }
         }
     }
@@ -119,7 +163,9 @@ function checkIfFallingBehindRock () {
 // **DEPTH ORDERING** - Simple function
 function updateSpriteDepths () {
     tinyBlueOx.z = tinyBlueOx.bottom
-    rock.z = rock.bottom
+    for (let value of interactableSprites) {
+        value.z = value.bottom
+    }
     tree.z = tree.bottom
 }
 // **SIMPLE HELPER FUNCTIONS** - Block-friendly
@@ -142,7 +188,7 @@ function isWithinMapBounds (sprite: Sprite, newX: number, newY: number) {
 }
 // **PHYSICS FUNCTIONS** - Simple and clear
 function handleJumping () {
-    if (isJumping || isFallingBehindRock) {
+    if (isJumping || isFallingBehindObject) {
         verticalVelocity += gravity
         tinyBlueOx.y += verticalVelocity
         // Check for landing
@@ -150,7 +196,7 @@ function handleJumping () {
             tinyBlueOx.bottom = currentGroundLevel
             verticalVelocity = 0
             isJumping = false
-            isFallingBehindRock = false
+            isFallingBehindObject = false
             isOnObject = false
         }
     }
@@ -166,16 +212,20 @@ controller.B.onEvent(ControllerButtonEvent.Released, function () {
     isBoosting = false
     updatePlayerSpeed()
 })
-function checkIfLandingOnRock () {
-    if (!(isFallingBehindRock)) {
-        if (tinyBlueOx.overlapsWith(rock)) {
-            if (verticalVelocity > 0) {
-                if (tinyBlueOx.bottom >= rock.top) {
-                    tinyBlueOx.bottom = rock.top
-                    verticalVelocity = 0
-                    isJumping = false
-                    isOnObject = true
-                    currentGroundLevel = rock.top
+function checkIfLandingOnInteractable () {
+    if (!(isFallingBehindObject)) {
+        for (let landingSprite of interactableSprites) {
+            if (tinyBlueOx.overlapsWith(landingSprite)) {
+                if (verticalVelocity > 0) {
+                    let surfaceY = getInteractableSurfaceY(landingSprite)
+                    if (tinyBlueOx.bottom >= surfaceY) {
+                        tinyBlueOx.bottom = surfaceY
+                        verticalVelocity = 0
+                        isJumping = false
+                        isOnObject = true
+                        currentGroundLevel = surfaceY
+                        currentPlatformSprite = landingSprite
+                    }
                 }
             }
         }
@@ -183,7 +233,7 @@ function checkIfLandingOnRock () {
 }
 let halfHeight = 0
 let halfWidth = 0
-let isFallingBehindRock = false
+let isFallingBehindObject = false
 let verticalVelocity = 0
 let isJumping = false
 let fellOff = false
@@ -192,12 +242,18 @@ let isBoosting = false
 let newX2 = 0
 let newX = 0
 let newY2 = 0
-let rockMoved = false
+let objectMoved = false
 let newY = 0
 let canPushHorizontally = false
 let canPushVertically = false
-let rock: Sprite = null
+let moveableObject: Sprite = null
 let tree: Sprite = null
+let currentPlatformSprite: Sprite = null
+let interactableDepthLayers: number[] = []
+let interactableDestructible: boolean[] = []
+let interactableMoveable: boolean[] = []
+let interactableJumpHeights: number[] = []
+let interactableSprites: Sprite[] = []
 let currentGroundLevel = 0
 let tilemapHeight = 0
 let tilemapWidth = 0
@@ -232,8 +288,9 @@ currentGroundLevel = 87
 // **MAIN GAME SETUP** - Uses standard MakeCode patterns
 tree = sprites.create(assets.image`myImage`, SpriteKind.physicalObject)
 tree.setPosition(44, 87)
-rock = sprites.create(assets.image`myImage0`, SpriteKind.Pushable)
-rock.setPosition(118, 87)
+moveableObject = sprites.create(assets.image`myImage0`, SpriteKind.Pushable)
+moveableObject.setPosition(118, 87)
+createInteractableSprite(moveableObject, 8, true, false, 8)
 tinyBlueOx = sprites.create(assets.image`myImage1`, SpriteKind.Player)
 tinyBlueOx.setPosition(108, 86)
 tinyBlueOx.z = 100
@@ -250,16 +307,25 @@ game.onUpdate(function () {
     // Handle physics
     handleJumping()
     // Handle collisions and interactions
-    checkIfLandingOnRock()
-    checkIfFallingOffRock()
-    checkIfFallingBehindRock()
-    // Handle rock pushing
-    handleRockPushing()
+    checkIfLandingOnInteractable()
+    checkIfFallingOffObject()
+    checkIfFallingBehindObject()
+    // Handle interactable pushing and collisions
+    for (let value2 of interactableSprites) {
+        let objectIndex = getInteractableIndex(value2)
+        if (objectIndex >= 0) {
+            if (interactableMoveable[objectIndex]) {
+                handleSpritePushing(value2)
+            }
+        }
+        if (!(isOnObject && value2 == currentPlatformSprite)) {
+            preventWalkingThroughSprite(tinyBlueOx, value2)
+        }
+    }
     // Prevent walking through objects
-    preventWalkingThroughSprite(tinyBlueOx, rock)
     preventWalkingThroughSprite(tinyBlueOx, tree)
     // Update visual depth ordering
     updateSpriteDepths()
     // Update debug display
-    textSprite.setText("Rock Y: " + Math.round(rock.y))
+    textSprite.setText("Obj Y: " + Math.round(interactableSprites[0].y))
 })
